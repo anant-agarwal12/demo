@@ -23,18 +23,25 @@ from io import BytesIO
 from PIL import Image
 
 class DetectorPublisher:
-    def __init__(self, api_url="http://localhost:8000", api_key="doggobot-secret-key-change-me"):
+    def __init__(self, api_url="http://localhost:8000", api_key="doggobot-secret-key-change-me", camera_index=2):
         self.api_url = api_url.rstrip('/')
         self.api_key = api_key
         self.headers = {"X-API-KEY": api_key}
         
         # Try to initialize webcam
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(camera_index)
         if not self.cap.isOpened():
-            print("??  No webcam found, will generate dummy frames")
+            print(f"??  No webcam found at index {camera_index}, will generate dummy frames")
             self.cap = None
         else:
-            print("? Webcam initialized")
+            # Set camera properties for smoother, better quality feed
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
+            print(f"? Webcam initialized at index {camera_index}")
+            print(f"   Resolution: {int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+            print(f"   FPS: {int(self.cap.get(cv2.CAP_PROP_FPS))}")
         
         # Sample names for simulation
         self.known_people = ["Alice", "Bob", "Charlie", "Diana"]
@@ -150,11 +157,11 @@ class DetectorPublisher:
             print(f"? Error posting alert: {e}")
             return False
     
-    def run(self, fps=5, alert_enabled=True):
+    def run(self, fps=15, alert_enabled=True):
         """Run the publisher loop"""
         print(f"\n?? Starting DoggoBot detector publisher")
         print(f"   API URL: {self.api_url}")
-        print(f"   Frame rate: {fps} FPS")
+        print(f"   Streaming frame rate: {fps} FPS")
         print(f"   Alerts: {'Enabled' if alert_enabled else 'Disabled'}\n")
         
         frame_interval = 1.0 / fps
@@ -199,14 +206,16 @@ def main():
                        help='Backend API URL (default: http://localhost:8000)')
     parser.add_argument('--api-key', default='doggobot-secret-key-change-me',
                        help='API key for authentication')
-    parser.add_argument('--fps', type=int, default=5,
-                       help='Frame rate (default: 5)')
+    parser.add_argument('--camera-index', type=int, default=2,
+                       help='Camera index (default: 2)')
+    parser.add_argument('--fps', type=int, default=15,
+                       help='Frame rate for streaming (default: 15, recommended 15-30 for smooth feed)')
     parser.add_argument('--no-alerts', action='store_true',
                        help='Disable alert generation')
     
     args = parser.parse_args()
     
-    publisher = DetectorPublisher(api_url=args.api_url, api_key=args.api_key)
+    publisher = DetectorPublisher(api_url=args.api_url, api_key=args.api_key, camera_index=args.camera_index)
     publisher.run(fps=args.fps, alert_enabled=not args.no_alerts)
 
 if __name__ == "__main__":
