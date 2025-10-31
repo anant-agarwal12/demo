@@ -78,5 +78,11 @@ export const api = {
   // Get video feed URL
   getVideoFeedUrl() {
     return `${API_BASE}/video_feed`
+  },
+
+  // Get frame data with bounding boxes
+  async getFrameData() {
+    const response = await fetch(`${API_BASE}/frame_data`)
+    return response.json()
   }
 }

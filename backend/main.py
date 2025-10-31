@@ -7,6 +7,7 @@ import os
 import json
 import asyncio
 import time
+import base64
 from datetime import datetime
 from io import BytesIO
 from PIL import Image
@@ -50,6 +51,7 @@ nlp_handler = NLPHandler(db)
 
 # Global state for live feed
 latest_frame = None
+latest_bounding_boxes = []
 frame_lock = asyncio.Lock()
 
 # SSE clients
@@ -111,22 +113,38 @@ async def metrics():
 @app.post("/frame")
 async def upload_frame(
     frame: UploadFile = File(...),
+    bounding_boxes: Optional[str] = Form(None),
+    face_count: Optional[int] = Form(None),
     x_api_key: str = Header(None)
 ):
-    """Upload a frame for live video feed"""
+    """Upload a frame for live video feed with optional bounding boxes"""
     verify_api_key(x_api_key)
     
-    global latest_frame
+    global latest_frame, latest_bounding_boxes
     
     try:
         # Read frame data
         frame_data = await frame.read()
         
-        # Store latest frame
+        # Parse bounding boxes if provided
+        boxes = []
+        if bounding_boxes:
+            try:
+                boxes = json.loads(bounding_boxes)
+            except json.JSONDecodeError:
+                boxes = []
+        
+        # Store latest frame and bounding boxes
         async with frame_lock:
             latest_frame = frame_data
+            latest_bounding_boxes = boxes
         
-        return {"status": "ok", "size": len(frame_data)}
+        return {
+            "status": "ok",
+            "size": len(frame_data),
+            "face_count": len(boxes) if boxes else 0,
+            "bounding_boxes": boxes
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -185,6 +203,19 @@ async def video_feed():
         generate(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
+
+@app.get("/frame_data")
+async def get_frame_data():
+    """Get latest frame and bounding box data as JSON"""
+    async with frame_lock:
+        if latest_frame:
+            frame_b64 = base64.b64encode(latest_frame).decode('utf-8')
+            return {
+                "frame": f"data:image/jpeg;base64,{frame_b64}",
+                "bounding_boxes": latest_bounding_boxes,
+                "face_count": len(latest_bounding_boxes)
+            }
+        return {"frame": None, "bounding_boxes": [], "face_count": 0}
 
 @app.get("/stream")
 async def sse_stream(request: Request):
