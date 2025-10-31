@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: doggobot-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=doggobot-secret-key-change-me
+      - DEBUG=True
+      - STORAGE_PATH=/app/storage
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ./backend:/app
+      - backend-storage:/app/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: doggobot-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-storage:
+    driver: local
+
+networks:
+  default:
+    name: doggobot-network
