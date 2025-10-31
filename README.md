@@ -17,8 +17,18 @@ A full-stack security robot monitoring dashboard with real-time detection alerts
 
 ## ? Features
 
+### ?? NEW: GPU-Accelerated Face Detection
+- **GPU Acceleration**: CUDA support for 3-6x performance boost (20-60 FPS vs 5-10 FPS)
+- **Real-time Bounding Boxes**: Visual face detection overlay on live feed
+- **Face Recognition**: Whitelist-based identification of known people
+- **Color-coded Detection**: Green=Friendly, Orange=Unknown, Red=Suspicious
+- **Live Face Counter**: Shows number of detected faces in real-time
+- **Auto GPU Detection**: Automatically uses GPU when available, falls back to CPU
+
+?? **See:** [GPU_AND_BOUNDING_BOXES_UPDATE.md](./GPU_AND_BOUNDING_BOXES_UPDATE.md) for setup instructions
+
 ### Command Center
-- **Live Video Feed**: MJPEG streaming from robot camera
+- **Live Video Feed**: MJPEG streaming from robot camera with face detection overlays
 - **Real-time Alerts**: Server-Sent Events (SSE) for instant notifications
 - **Alert Cards**: Color-coded status (Friendly/Unknown/Suspicious)
 - **Operator Controls**: Start/Stop patrol, Return home, Follow, Investigate

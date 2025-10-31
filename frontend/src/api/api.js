@@ -78,5 +78,8 @@ export const api = {
   // Get video feed URL
   getVideoFeedUrl() {
     return `${API_BASE}/video_feed`
-  }
+  },
+
+  // Base URL for direct fetch calls
+  baseURL: API_BASE
 }

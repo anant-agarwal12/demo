@@ -50,6 +50,7 @@ nlp_handler = NLPHandler(db)
 
 # Global state for live feed
 latest_frame = None
+latest_detections = None
 frame_lock = asyncio.Lock()
 
 # SSE clients
@@ -111,22 +112,32 @@ async def metrics():
 @app.post("/frame")
 async def upload_frame(
     frame: UploadFile = File(...),
+    detections: Optional[str] = Form(None),
     x_api_key: str = Header(None)
 ):
-    """Upload a frame for live video feed"""
+    """Upload a frame for live video feed with optional detection data"""
     verify_api_key(x_api_key)
     
-    global latest_frame
+    global latest_frame, latest_detections
     
     try:
         # Read frame data
         frame_data = await frame.read()
         
-        # Store latest frame
+        # Parse detections if provided
+        detection_data = None
+        if detections:
+            try:
+                detection_data = json.loads(detections)
+            except json.JSONDecodeError:
+                pass
+        
+        # Store latest frame and detections
         async with frame_lock:
             latest_frame = frame_data
+            latest_detections = detection_data
         
-        return {"status": "ok", "size": len(frame_data)}
+        return {"status": "ok", "size": len(frame_data), "detections": len(detection_data) if detection_data else 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -185,6 +196,15 @@ async def video_feed():
         generate(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
+
+@app.get("/detections")
+async def get_detections():
+    """Get latest detection data (bounding boxes, names, etc.)"""
+    async with frame_lock:
+        if latest_detections:
+            return {"detections": latest_detections, "timestamp": time.time()}
+        else:
+            return {"detections": [], "timestamp": time.time()}
 
 @app.get("/stream")
 async def sse_stream(request: Request):
