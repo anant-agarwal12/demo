@@ -4,6 +4,7 @@ Real Face Recognition Detector for DoggoBot
 - Uses camera feed to detect faces
 - Compares against whitelist from backend
 - Posts alerts with proper status (friendly/unknown/suspicious)
+- Draws bounding boxes on live feed for dashboard
 
 Usage:
     python face_detector_real.py --camera-index 2 --fps 15
@@ -339,11 +340,13 @@ class FaceDetector:
         print(f"   Streaming FPS: {fps}")
         print(f"   Face Recognition: {'Enabled' if FACE_RECOGNITION_AVAILABLE else 'Disabled (OpenCV fallback)'}")
         print(f"   Whitelist: {len(self.known_face_names)} face encodings loaded")
+        print(f"   🎨 Bounding boxes will appear on backend live feed!")
         print(f"\nPress 'q' to quit, 'r' to reload whitelist\n")
         
         frame_interval = 1.0 / fps
         frame_count = 0
         process_every = 3  # Process faces every N frames for performance
+        last_faces = []  # Store last detected faces to draw on every frame
         
         try:
             while True:
@@ -355,51 +358,66 @@ class FaceDetector:
                 
                 frame_count += 1
                 
-                # Detect faces periodically
+                # Detect faces periodically (for performance)
                 if frame_count % process_every == 0:
                     if FACE_RECOGNITION_AVAILABLE and self.known_face_encodings:
-                        faces = self.detect_faces_recognition(frame)
+                        last_faces = self.detect_faces_recognition(frame)
                     else:
-                        faces = self.detect_faces_opencv(frame)
+                        last_faces = self.detect_faces_opencv(frame)
                     
-                    # Process detections
-                    for face in faces:
-                        top, right, bottom, left = face['location']
+                    # Send alerts for new detections
+                    for face in last_faces:
                         name = face['name']
                         confidence = face['confidence']
-                        
-                        # Draw box and label
-                        if name:
-                            # Known person - green box
-                            color = (0, 255, 0)
-                            status = "friendly"
-                            label = f"{name} ({confidence:.2f})"
-                            identifier = name
-                        else:
-                            # Unknown person - red box
-                            color = (0, 0, 255)
-                            status = "unknown"
-                            label = "Unknown"
-                            identifier = "unknown"
-                        
-                        cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-                        cv2.putText(frame, label, (left, top - 10),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                        status = "friendly" if name else "unknown"
+                        identifier = name if name else "unknown"
                         
                         # Send alert if cooldown passed
                         if self.should_send_alert(identifier):
                             self.post_alert(name, status, frame, confidence)
                 
+                # Draw boxes on EVERY frame (using last detected faces)
+                # This ensures bounding boxes appear smoothly on backend feed
+                for face in last_faces:
+                    top, right, bottom, left = face['location']
+                    name = face['name']
+                    confidence = face['confidence']
+                    
+                    # Draw box and label
+                    if name:
+                        # Known person - green box
+                        color = (0, 255, 0)
+                        label = f"{name} ({confidence:.2f})"
+                    else:
+                        # Unknown person - red box
+                        color = (0, 0, 255)
+                        label = "Unknown"
+                    
+                    # Draw thicker boxes for better visibility on dashboard
+                    cv2.rectangle(frame, (left, top), (right, bottom), color, 3)
+                    
+                    # Draw label background for better readability
+                    label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                    cv2.rectangle(frame, (left, top - label_size[1] - 10), 
+                                (left + label_size[0], top), color, -1)
+                    cv2.putText(frame, label, (left, top - 5),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                
                 # Add status overlay
-                status_text = f"Frames: {frame_count} | Whitelist: {len(set(self.known_face_names))} people"
-                cv2.putText(frame, status_text, (10, 30),
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                whitelist_count = len(set(self.known_face_names))
+                detected_count = len(last_faces)
+                status_text = f"Detected: {detected_count} | Whitelist: {whitelist_count} people | Frame: {frame_count}"
                 
-                # Post frame to backend
-                if frame_count % 2 == 0:  # Post every other frame
-                    self.post_frame(frame)
+                # Draw background for status text
+                text_size = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                cv2.rectangle(frame, (5, 5), (text_size[0] + 15, 35), (0, 0, 0), -1)
+                cv2.putText(frame, status_text, (10, 25),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 
-                # Show preview
+                # Post frame to backend (WITH bounding boxes drawn!)
+                self.post_frame(frame)
+                
+                # Show preview locally
                 cv2.imshow('DoggoBot Face Detector (press q to quit, r to reload)', frame)
                 
                 # Handle keypresses
