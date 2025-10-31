@@ -15,6 +15,7 @@ import json
 import time
 import argparse
 import numpy as np
+import os
 from datetime import datetime
 
 # Try to import face_recognition library
@@ -58,7 +59,43 @@ class FaceDetector:
         self.alert_cooldown = 10  # seconds between alerts for same person
         
         # Load OpenCV face detector as fallback
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.face_cascade = self.load_face_cascade()
+    
+    def load_face_cascade(self):
+        """Load Haar Cascade for face detection with multiple fallback paths"""
+        cascade_paths = [
+            # Try cv2.data first (newer OpenCV versions)
+            getattr(cv2.data, 'haarcascades', None),
+            # Common installation paths
+            cv2.__path__[0] + '/data/',
+            'C:/opencv/data/haarcascades/',
+            '/usr/share/opencv4/haarcascades/',
+            '/usr/local/share/opencv4/haarcascades/',
+            '/usr/share/opencv/haarcascades/',
+            # Relative paths
+            './haarcascades/',
+            '../haarcascades/',
+        ]
+        
+        cascade_file = 'haarcascade_frontalface_default.xml'
+        
+        for path in cascade_paths:
+            if path is None:
+                continue
+            
+            full_path = os.path.join(path, cascade_file) if path else cascade_file
+            
+            try:
+                cascade = cv2.CascadeClassifier(full_path)
+                if not cascade.empty():
+                    print(f"✅ Loaded face cascade from: {full_path}")
+                    return cascade
+            except:
+                continue
+        
+        print("⚠️  Could not load Haar Cascade for face detection")
+        print("   Face detection will only work if face_recognition library is installed")
+        return None
     
     def load_whitelist(self):
         """Download whitelist from backend and compute encodings"""
@@ -135,6 +172,9 @@ class FaceDetector:
     
     def detect_faces_opencv(self, frame):
         """Fallback face detection using OpenCV"""
+        if self.face_cascade is None or self.face_cascade.empty():
+            return []
+        
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = self.face_cascade.detectMultiScale(gray, 1.3, 5)
         
