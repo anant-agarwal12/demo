@@ -23,18 +23,23 @@ from io import BytesIO
 from PIL import Image
 
 class DetectorPublisher:
-    def __init__(self, api_url="http://localhost:8000", api_key="doggobot-secret-key-change-me"):
+    def __init__(self, api_url="http://localhost:8000", api_key="doggobot-secret-key-change-me", camera_index=2):
         self.api_url = api_url.rstrip('/')
         self.api_key = api_key
         self.headers = {"X-API-KEY": api_key}
         
         # Try to initialize webcam
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(camera_index)
         if not self.cap.isOpened():
-            print("??  No webcam found, will generate dummy frames")
+            print(f"??  Camera {camera_index} not found, will generate dummy frames")
             self.cap = None
         else:
-            print("? Webcam initialized")
+            # Optimize camera settings for smooth video
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to minimize latency
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # Set reasonable resolution
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)  # Request 30 FPS from camera
+            print(f"? Webcam initialized on camera index {camera_index}")
         
         # Sample names for simulation
         self.known_people = ["Alice", "Bob", "Charlie", "Diana"]
@@ -63,7 +68,10 @@ class DetectorPublisher:
     def get_frame(self):
         """Capture or generate a frame"""
         if self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
+            # Read multiple times to clear buffer and get latest frame
+            # This reduces latency and improves smoothness
+            for _ in range(2):
+                ret, frame = self.cap.read()
             if ret:
                 return frame
         
@@ -72,15 +80,17 @@ class DetectorPublisher:
     def post_frame(self, frame):
         """Post a frame to the /frame endpoint"""
         try:
-            # Encode frame as JPEG
-            _, buffer = cv2.imencode('.jpg', frame)
+            # Encode frame as JPEG with quality optimization for smooth streaming
+            # Quality 85 is a good balance between size and quality
+            encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+            _, buffer = cv2.imencode('.jpg', frame, encode_params)
             
             files = {'frame': ('frame.jpg', buffer.tobytes(), 'image/jpeg')}
             response = requests.post(
                 f"{self.api_url}/frame",
                 files=files,
                 headers=self.headers,
-                timeout=2
+                timeout=1  # Reduced timeout for faster processing
             )
             
             if response.status_code == 200:
@@ -167,11 +177,11 @@ class DetectorPublisher:
                 # Get frame
                 frame = self.get_frame()
                 
-                # Post frame
-                if self.post_frame(frame):
-                    frame_count += 1
-                    if frame_count % (fps * 5) == 0:  # Every 5 seconds
-                        print(f"?? Frames posted: {frame_count}")
+                # Post frame (don't block on slow network - use threading would be better, but keep it simple)
+                self.post_frame(frame)  # Fire and forget for smoothness
+                frame_count += 1
+                if frame_count % (fps * 5) == 0:  # Every 5 seconds
+                    print(f"?? Frames posted: {frame_count}")
                 
                 # Periodically generate and post alerts
                 if alert_enabled:
@@ -199,14 +209,16 @@ def main():
                        help='Backend API URL (default: http://localhost:8000)')
     parser.add_argument('--api-key', default='doggobot-secret-key-change-me',
                        help='API key for authentication')
-    parser.add_argument('--fps', type=int, default=5,
-                       help='Frame rate (default: 5)')
+    parser.add_argument('--fps', type=int, default=24,
+                       help='Frame rate (default: 24 for smooth video)')
+    parser.add_argument('--camera-index', type=int, default=2,
+                       help='Camera device index (default: 2)')
     parser.add_argument('--no-alerts', action='store_true',
                        help='Disable alert generation')
     
     args = parser.parse_args()
     
-    publisher = DetectorPublisher(api_url=args.api_url, api_key=args.api_key)
+    publisher = DetectorPublisher(api_url=args.api_url, api_key=args.api_key, camera_index=args.camera_index)
     publisher.run(fps=args.fps, alert_enabled=not args.no_alerts)
 
 if __name__ == "__main__":
