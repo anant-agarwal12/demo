@@ -22,6 +22,7 @@ from datetime import datetime
 try:
     import face_recognition
     FACE_RECOGNITION_AVAILABLE = True
+    print("✅ face_recognition library loaded")
 except ImportError:
     FACE_RECOGNITION_AVAILABLE = False
     print("⚠️  face_recognition library not installed!")
@@ -63,19 +64,36 @@ class FaceDetector:
     
     def load_face_cascade(self):
         """Load Haar Cascade for face detection with multiple fallback paths"""
-        cascade_paths = [
-            # Try cv2.data first (newer OpenCV versions)
-            getattr(cv2.data, 'haarcascades', None),
-            # Common installation paths
-            cv2.__path__[0] + '/data/',
+        cascade_paths = []
+        
+        # Try cv2.data first (newer OpenCV versions)
+        try:
+            if hasattr(cv2, 'data') and hasattr(cv2.data, 'haarcascades'):
+                cascade_paths.append(cv2.data.haarcascades)
+        except:
+            pass
+        
+        # Try to find OpenCV installation directory
+        try:
+            import site
+            site_packages = site.getsitepackages()
+            for sp in site_packages:
+                cascade_paths.append(os.path.join(sp, 'cv2', 'data'))
+        except:
+            pass
+        
+        # Add common installation paths
+        cascade_paths.extend([
+            os.path.join(cv2.__path__[0], 'data'),
             'C:/opencv/data/haarcascades/',
+            'C:/Users/' + os.getenv('USERNAME', 'user') + '/AppData/Local/Programs/Python/Python*/Lib/site-packages/cv2/data/',
             '/usr/share/opencv4/haarcascades/',
             '/usr/local/share/opencv4/haarcascades/',
             '/usr/share/opencv/haarcascades/',
             # Relative paths
             './haarcascades/',
             '../haarcascades/',
-        ]
+        ])
         
         cascade_file = 'haarcascade_frontalface_default.xml'
         
@@ -83,23 +101,29 @@ class FaceDetector:
             if path is None:
                 continue
             
-            full_path = os.path.join(path, cascade_file) if path else cascade_file
-            
             try:
-                cascade = cv2.CascadeClassifier(full_path)
-                if not cascade.empty():
-                    print(f"✅ Loaded face cascade from: {full_path}")
-                    return cascade
-            except:
+                full_path = os.path.join(path, cascade_file)
+                
+                # Check if file exists
+                if os.path.exists(full_path):
+                    cascade = cv2.CascadeClassifier(full_path)
+                    if not cascade.empty():
+                        print(f"✅ Loaded face cascade from: {full_path}")
+                        return cascade
+            except Exception as e:
                 continue
         
         print("⚠️  Could not load Haar Cascade for face detection")
-        print("   Face detection will only work if face_recognition library is installed")
+        if not FACE_RECOGNITION_AVAILABLE:
+            print("   ❌ Face detection will NOT work!")
+            print("   💡 Install face_recognition: pip install face-recognition")
+        else:
+            print("   ℹ️  Will use face_recognition library only (slower but works)")
         return None
     
     def load_whitelist(self):
         """Download whitelist from backend and compute encodings"""
-        print("📥 Loading whitelist from backend...")
+        print("\n📥 Loading whitelist from backend...")
         
         try:
             response = requests.get(f"{self.api_url}/whitelist", timeout=5)
@@ -112,6 +136,7 @@ class FaceDetector:
             
             if not whitelist_entries:
                 print("⚠️  No whitelist entries found. Add people via the Settings page!")
+                print("   Go to: http://localhost:3000/settings")
                 return True
             
             print(f"   Found {len(whitelist_entries)} whitelist entries")
@@ -299,6 +324,13 @@ class FaceDetector:
             print("❌ No camera available")
             return
         
+        # Check if we can do face detection
+        if not FACE_RECOGNITION_AVAILABLE and (self.face_cascade is None or self.face_cascade.empty()):
+            print("\n❌ ERROR: No face detection method available!")
+            print("   Install face_recognition: pip install face-recognition")
+            print("   Or fix OpenCV cascade loading")
+            return
+        
         # Load whitelist
         self.load_whitelist()
         
@@ -404,6 +436,10 @@ def main():
                        help='Frame rate for streaming (default: 15)')
     
     args = parser.parse_args()
+    
+    print("=" * 60)
+    print("🎯 DoggoBot Face Recognition System")
+    print("=" * 60)
     
     detector = FaceDetector(
         api_url=args.api_url,
